@@ -2,25 +2,38 @@
 #include<stdlib.h>
 #include<string.h>
 #include"./node.h"
+//for threads
+#include <pthread.h>
+//for networking
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #define DEFUALT_DICTIONARY "./dictionary.txt"
 #define HASH_SIZE 2000
 #define BUFF_SIZE 49
-
+#define FALSE 0
+#define TRUE 1
 
 
 node *table[HASH_SIZE];
 
 
 void init();
-void add_word(char *s);
 int hash(char *s);
+void add_word(char *s);
 void to_lower(char *s);
+int check(char *s);
 int count;
 
 int main(int argc, char const *argv[]){
     count = 0;
     init();
+    char s[] = "helwpdplqwldoqwk[oqkwpk";
+    //to_lower(s);
+    //add_word(s);
+
+    //char s2[] = "dandjwnwjdnjawldbawlj";
+    printf("%s:%d\n", s, check(s));
 
 }
 
@@ -50,40 +63,9 @@ void init(){
 
 }
 
-void add_word(char *s){
-    //get hash
-    int index = hash(s);
-    //create node
-    node *n = new_node(s);
-    //temp used to find proper place in hashmap
-    node *temp = table[index];
-    //if position in hashmap is empty
-    if (temp == NULL){
-        //make node the first in that spot
-        temp = n;
-    }
-    //else add node to beggining of hash table
-    else {
-        n->next = temp;
-        temp = n;
-    }
-}
-//check if word is in dictionary
-int check(char *s){
-    //convert input to lowercase
-    to_lower(s);
-    //find place in hash table
-    int index = hash(s);
-    //loop through section of table
-    node *temp = table[index];
-    while (temp != NULL){
-        //if match found
-        if (strcmp(s, temp) == 0){
-            return TRUE;
-        }
-    }
-}
 int hash(char *s){
+    //convert to lower case
+    to_lower(s);
     //used to read each char in string
     char *temp = s;
     //holds sum of all chars
@@ -100,6 +82,23 @@ int hash(char *s){
     return sum % (HASH_SIZE);
 }
 
+void add_word(char *s){
+    //get hash
+    int index = hash(s);
+    //create node
+    node *n = new_node(s);
+    //if position in hashmap is empty
+    if (table[index] == NULL){
+        //make node the first in that spot
+        table[index] = n;
+    }
+    //else add node to beggining of hash table
+    else {
+        n->next = table[index];
+        table[index] = n;
+    }
+}
+
 //converts string to lowercase
 void to_lower(char *s){
     //used to travel string
@@ -113,4 +112,29 @@ void to_lower(char *s){
         }
         temp++;
     }
+}
+
+//check if word is in dictionary
+int check(char *s){
+    //convert input to lowercase
+    to_lower(s);
+    //find place in hash table
+    int index = hash(s);
+    printf("HASH: %d\n", index);
+
+    //loop through section of table
+    node *temp = table[index];
+    do {
+        printf("%s:%s\n", s, temp->word);
+        //if match found
+        if (strcmp(s, temp->word) == 0){
+            return TRUE;
+        }
+        //else go to next node
+        temp = temp->next;
+    }
+    while(temp->word != NULL && temp->next != NULL);
+    
+    //if no match found
+    return FALSE;
 }
