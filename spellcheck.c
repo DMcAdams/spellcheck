@@ -1,7 +1,10 @@
+//standard libraries
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
+//included header files
 #include"./node.h"
+#include"./client.h"
 //for threads
 #include <pthread.h>
 //for networking
@@ -15,14 +18,26 @@
 #define TRUE 1
 
 
-node *table[HASH_SIZE];
 
 
+//for dictionary functions
 void init();
 int hash(char *s);
 void add_word(char *s);
 void to_lower(char *s);
 int check(char *s);
+//for networking
+int open_listenfd(int port);
+void connection_handler(int argc, char **argv);
+void addClient(int clientSocket);
+
+//hash table for holding dictionary
+node *table[HASH_SIZE];
+//queue for holding incoming clients
+queue *clientQueue;
+//for synchronization
+pthread_mutex_t mutex;
+pthread_cond_t work;
 int count;
 
 int main(int argc, char const *argv[]){
@@ -137,4 +152,99 @@ int check(char *s){
     
     //if no match found
     return FALSE;
+}
+
+int open_listenfd(int port){
+    int listenfd, optval=1;
+    struct sockaddr_in serveraddr;
+    /* Create a socket descriptor */
+    if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        return -1;
+    }
+    /* Eliminates "Address already in use" error from bind */
+    if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const void *)&optval , sizeof(int)) < 0){
+        return -1;
+    }
+    //Reset the serveraddr struct, setting all of it's bytes to zero.
+    //Some properties are then set for the struct, you don't
+    // need to worry about these.
+    //bind() is then called, associating the port number with the
+    //socket descriptor.
+    bzero((char *) &serveraddr, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serveraddr.sin_port = htons((unsigned short)port);
+    if (bind(listenfd, (struct sockaddr*)&serveraddr, sizeof(serveraddr)) < 0){
+        return -1;
+    }
+    //Prepare the socket to allow accept() calls. The value 20 is
+    //the backlog, this is the maximum number of connections that will be placed
+    //on queue until accept() is called again.
+    if (listen(listenfd, 20) < 0){
+        return -1;
+    }
+    return listenfd;
+}
+
+//Handles all incoming connections, adds new clients to the client queue
+void connection_handler(int argc, char **argv) {
+    //if not enough inputs
+    if (argc < 2) {
+        puts("Error: No port number entered.");
+        exit(0);
+    }
+        //else if too many inputs
+    else if (argc > 2) {
+        puts("Error: Too many inputs");
+        exit(0);
+    }
+
+    //get port number from argv
+    int port = atoi(argv[1]);
+    //only needed for accept()
+    struct sockaddr_in client;
+    //needed for socket connection
+    socklen_t clientLen = sizeof(client);
+    int connectionSocket;
+    int clientSocket;
+
+    //can't use ports below 1025 and ports above 65535
+    if (port < 1025 || port > 65535) {
+        puts("Error: port number must be greater than 1024 and less than 65536");
+        exit(0);
+    }
+
+    //connect to port
+    connectionSocket = open_listenfd(port);
+    //if connect failed
+    if (connectionSocket == -1) {
+        printf("Error: Could not connect to port %d\n", port);
+        exit(0);
+    }
+    //start accepting clients
+    while (1) {
+        //get client connection
+        clientSocket = accept(connectionSocket, (struct sockaddr *) &client, &clientLen);
+        //if connect failed
+        if (clientSocket == -1) {
+            printf("Error: Could not connnect to client.\n");
+            exit(0);
+        }
+            //else add client to clientQueue
+        else {
+            addClient(clientSocket);
+        }
+    }
+}
+
+//adds clientSocket data into queue,
+void addClient(int clientSocket){
+    //get lock
+    pthread_mutex_lock(&mutex);
+    //add clientSocket to queue
+    push(clientQueue, clientSocket);
+    //signal to workers
+    pthread_cond_signal(&work);
+    //release lock
+    pthread_mutex_unlock(&mutex);
 }
