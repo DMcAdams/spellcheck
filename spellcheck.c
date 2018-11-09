@@ -1,7 +1,8 @@
-//standard libraries
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
+#include<ctype.h>
+#include <unistd.h>
 //included header files
 #include"./node.h"
 #include"./client.h"
@@ -10,10 +11,18 @@
 //for networking
 #include <sys/socket.h>
 #include <netinet/in.h>
-
+//file names
 #define DEFUALT_DICTIONARY "./dictionary.txt"
+#define LOG_FILE "./log.txt"
+//size of hash table
 #define HASH_SIZE 2000
+//max characters for word buffer
 #define BUFF_SIZE 49
+//max buffer for client input
+#define CLIENT_BUFF 100
+//number of worker threads
+#define WORKER_COUNT 3
+//true/false
 #define FALSE 0
 #define TRUE 1
 
@@ -25,11 +34,16 @@ void init();
 int hash(char *s);
 void add_word(char *s);
 void to_lower(char *s);
+char* trim(char *s);
 int check(char *s);
+void write_log(char *string, pthread_t threadID);
 //for networking
 int open_listenfd(int port);
 void connection_handler(int argc, char **argv);
 void addClient(int clientSocket);
+//worker threads to handle requests
+client *getClient();
+void *workerThread(void *id);
 
 //hash table for holding dictionary
 node *table[HASH_SIZE];
@@ -40,16 +54,43 @@ pthread_mutex_t mutex;
 pthread_cond_t work;
 int count;
 
-int main(int argc, char const *argv[]){
-    count = 0;
+int main(int argc, char **argv){
+    //start message in log file
+    write_log("**********SERVER START*************\n", 0);
+    //initialize dictionary
     init();
-    char s[] = "helwpdplqwldoqwk[oqkwpk";
-    //to_lower(s);
-    //add_word(s);
+    //creat the client queue
+    clientQueue = create();
+    //create worker thread pool
+    pthread_t threadPool[WORKER_COUNT];
+    int threadIDs[WORKER_COUNT];
+    //init worker threads
+    printf("%s\n","Creating threads");
+    for(int i = 0; i < WORKER_COUNT; i++){
+        threadIDs[i] = i;
+        //Start running the threads.
+        pthread_create(&threadPool[i], NULL, &workerThread, &threadIDs[i]);
+    }
 
-    //char s2[] = "dandjwnwjdnjawldbawlj";
-    printf("%s:%d\n", s, check(s));
+    printf("All threads launched.\n");
+    connection_handler(argc, argv);
 
+    for(int i = 0; i < WORKER_COUNT; i++){
+        //Wait for all threads to finish executing.
+        pthread_join(threadPool[i], NULL);
+    }
+}
+
+//write string to log file
+void write_log(char *string, pthread_t threadID){
+    FILE *fp = fopen(LOG_FILE, "a");
+    if (fp == NULL){
+        puts("Could not write to log file.");
+    }
+    else{
+        fprintf(fp, "Thread %lu: %s", threadID, string);
+    }
+    fclose(fp);
 }
 
 void init(){
@@ -129,6 +170,13 @@ void to_lower(char *s){
     }
 }
 
+//remove trailing newline char from string
+char* trim(char *s){
+    int i = strlen(s) - 1;
+    if (i > 0 && s[i] == '\n')
+        s[i] = '\0';
+    return s;
+}
 //check if word is in dictionary
 int check(char *s){
     //convert input to lowercase
@@ -247,4 +295,127 @@ void addClient(int clientSocket){
     pthread_cond_signal(&work);
     //release lock
     pthread_mutex_unlock(&mutex);
+}
+
+client *getClient(){
+    //get lock
+    pthread_mutex_lock(&mutex);
+    //if queue is empty
+    while(clientQueue->count <= 0){
+        //wait for signal for work
+        pthread_cond_wait(&work, &mutex);
+    }
+    //get node from clientQueue
+    client *temp = pull(clientQueue);
+    //release lock
+    pthread_mutex_unlock(&mutex);
+
+    return temp;
+}
+void *workerThread(void *id){
+    //get thread ID
+    pthread_t threadID = pthread_self();
+    //buffer gets input from client
+    char recvBuffer[CLIENT_BUFF];
+    int bytesReturned;
+    //used to check individual words
+    char *token;
+
+    while (1) {
+        //get next client
+        client *temp = getClient();
+        int clientSocket = temp->ClientSocket;
+
+        //used for messages
+        char* clientMessage = "Now connected to the spellcheck server.\n";
+        char* msgRequest = "Send me text to check if a word or words are in the dictionary.\nUse the escape key to exit.\n";
+        char* wordFound = " is in the dictionary.\n";
+        char *wordNotFound = " is not in the dictionary.\n";
+        char* msgPrompt = ">>>";
+        char* inputReceived = "Input from client: ";
+        char* msgError = "Please input text for the spellchecker.\n";
+        char* msgClose = "Goodbye!\n";
+
+        //print and write connected message to log
+        printf("Thread %lu: New client connected\n", threadID);
+        write_log("New client connected\n", threadID);
+
+        //Send connected message to client
+        send(clientSocket, clientMessage, strlen(clientMessage), 0);
+        //Ask for input
+        send(clientSocket, msgRequest, strlen(msgRequest), 0);
+        
+        //Begin sending and receiving messages.
+        while(1){
+            //send promt (">>>") to the client
+            send(clientSocket, msgPrompt, strlen(msgPrompt), 0);
+            //recv() will store the message from the user in the buffer, returning
+            //how many bytes we received.
+            bytesReturned = recv(clientSocket, recvBuffer, CLIENT_BUFF, 0);
+            //add nul char to string in place of trailing newline char
+            recvBuffer[bytesReturned-(sizeof(char)*2)] = '\0';
+            //Check if we got a message, send a message back or quit if the
+            //user specified it.
+            if(bytesReturned == -1){
+                send(clientSocket, msgError, strlen(msgError), 0);
+            }
+            //'27' is the escape key.
+            else if(recvBuffer[0] == 27){
+                send(clientSocket, msgClose, strlen(msgClose), 0);
+                close(clientSocket);
+                break;
+            }
+                //else check words in string
+            else{
+                //remove trailing newline char
+                char *string = trim(recvBuffer);
+
+                //create an input recieved message
+                char *s = malloc(sizeof(char)*(strlen(inputReceived)+strlen(string)+2));
+                sprintf(s, "%s%s\n", inputReceived, string);
+
+                //print and log message
+                printf("Thread %lu: %s", threadID, s);
+                write_log(s, threadID);
+                //free memory
+                free(s);
+
+                //get first word in string
+                token = strtok(string, " ");
+                //loop until end of string
+                while( token != NULL ) {
+                    //if word found
+                    if(check(token)){
+                        //create found message
+                        char *msg = malloc(sizeof(char)*(strlen(token)+strlen(wordFound)+1));
+                        sprintf(msg, "%s%s", token, wordFound);
+                        //send message
+                        send(clientSocket, msg, strlen(msg), 0);
+                        //print and write message to log
+                        printf("Thread %lu: %s",threadID, msg);
+                        write_log(msg, threadID);
+                        //free memory
+                        free(msg);
+                    }
+                        //else word not found
+                    else{
+                        //create not found message
+                        char *msg = malloc(sizeof(char)*(strlen(token)+strlen(wordNotFound)+1));
+                        sprintf(msg, "%s%s", token, wordNotFound);
+                        //send message
+                        send(clientSocket, msg, strlen(msg), 0);
+                        //print and write message to log
+                        printf("Thread %lu: %s",threadID, msg);
+                        write_log(msg, threadID);
+                        //free memory
+                        free(msg);
+
+                    }
+                    token = strtok(NULL, " ");
+                }
+            }
+        }
+        //free memory
+        free(temp);
+    }
 }

@@ -53,7 +53,7 @@ void push (queue *q, int ClientSocket){
 //remove next client from the queue and return it
 client* pull(queue *q){
     //if queue is empty
-    if (q->count >= 0){
+    if (q->count <= 0){
         return NULL;
     }
     //else get next client
