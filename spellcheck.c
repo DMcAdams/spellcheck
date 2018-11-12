@@ -12,7 +12,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 //file names
-#define DEFUALT_DICTIONARY "./dictionary.txt"
+#define DEFUALT_DICTIONARY "./words2.txt"
+#define DEFUALT_PORT 1026
 #define LOG_FILE "./log.txt"
 //size of hash table
 #define HASH_SIZE 2000
@@ -28,10 +29,9 @@
 
 
 
-
 //for dictionary functions
 void init();
-int hash(char *s);
+unsigned long hash(char *s);
 void add_word(char *s);
 void to_lower(char *s);
 char* trim(char *s);
@@ -49,14 +49,21 @@ void *workerThread(void *id);
 node *table[HASH_SIZE];
 //queue for holding incoming clients
 queue *clientQueue;
+
+//holds port for connection
+int port;
+
 //for synchronization
 pthread_mutex_t mutex;
 pthread_cond_t work;
 int count;
 
 int main(int argc, char **argv){
+    printf("<<<%d>>>\n",argc);
     //start message in log file
     write_log("**********SERVER START*************\n", 0);
+    printf("%lu", hash("épée"));
+    
     //initialize dictionary
     init();
     //creat the client queue
@@ -64,7 +71,7 @@ int main(int argc, char **argv){
     //create worker thread pool
     pthread_t threadPool[WORKER_COUNT];
     int threadIDs[WORKER_COUNT];
-    //init worker threads
+    //create worker threads
     printf("%s\n","Creating threads");
     for(int i = 0; i < WORKER_COUNT; i++){
         threadIDs[i] = i;
@@ -73,6 +80,9 @@ int main(int argc, char **argv){
     }
 
     printf("All threads launched.\n");
+    write_log("All threads launched.\n", 0);
+    
+    //start accepting connections
     connection_handler(argc, argv);
 
     for(int i = 0; i < WORKER_COUNT; i++){
@@ -93,6 +103,7 @@ void write_log(char *string, pthread_t threadID){
     fclose(fp);
 }
 
+//Initializes the hash table, and loads the dictionary into it word by word.
 void init(){
     //initialize hash table values to null
     for (int i = 0; i < HASH_SIZE; i ++){
@@ -119,13 +130,14 @@ void init(){
 
 }
 
-int hash(char *s){
+//hashing algorithm to generate a number from a string
+unsigned long hash(char *s){
     //convert to lower case
     to_lower(s);
     //used to read each char in string
     char *temp = s;
     //holds sum of all chars
-    int sum = 0;
+    unsigned long sum = 0;
     //loop through string
     while (*temp != '\0'){
         //add value of current char to string
@@ -138,6 +150,7 @@ int hash(char *s){
     return sum % (HASH_SIZE);
 }
 
+//add a word to the dictionary
 void add_word(char *s){
     //get hash
     int index = hash(s);
@@ -155,7 +168,7 @@ void add_word(char *s){
     }
 }
 
-//converts string to lowercase
+//converts a string to lowercase
 void to_lower(char *s){
     //used to travel string
     char *temp = s;
@@ -177,6 +190,7 @@ char* trim(char *s){
         s[i] = '\0';
     return s;
 }
+
 //check if word is in dictionary
 int check(char *s){
     //convert input to lowercase
@@ -187,7 +201,8 @@ int check(char *s){
 
     //loop through section of table
     node *temp = table[index];
-    do {
+    while(temp != NULL){
+
         printf("%s:%s\n", s, temp->word);
         //if match found
         if (strcmp(s, temp->word) == 0){
@@ -196,11 +211,11 @@ int check(char *s){
         //else go to next node
         temp = temp->next;
     }
-    while(temp->word != NULL && temp->next != NULL);
     
     //if no match found
     return FALSE;
 }
+
 
 int open_listenfd(int port){
     int listenfd, optval=1;
@@ -236,19 +251,8 @@ int open_listenfd(int port){
 
 //Handles all incoming connections, adds new clients to the client queue
 void connection_handler(int argc, char **argv) {
-    //if not enough inputs
-    if (argc < 2) {
-        puts("Error: No port number entered.");
-        exit(0);
-    }
-        //else if too many inputs
-    else if (argc > 2) {
-        puts("Error: Too many inputs");
-        exit(0);
-    }
-
-    //get port number from argv
-    int port = atoi(argv[1]);
+    //holds port used to connect to server
+    int port;
     //only needed for accept()
     struct sockaddr_in client;
     //needed for socket connection
@@ -256,6 +260,21 @@ void connection_handler(int argc, char **argv) {
     int connectionSocket;
     int clientSocket;
 
+    //if not enough inputs
+    if (argc < 2) {
+        printf("No port number entered. Using port %d by default.\n", DEFUALT_PORT);
+        port = DEFUALT_PORT;
+    }
+        //else if too many inputs
+    else if (argc > 2) {
+        puts("Error: Too many inputs");
+        exit(0);
+    }
+    else{
+        //get port number from argv
+        port = atoi(argv[1]);
+    }
+    
     //can't use ports below 1025 and ports above 65535
     if (port < 1025 || port > 65535) {
         puts("Error: port number must be greater than 1024 and less than 65536");
@@ -285,7 +304,7 @@ void connection_handler(int argc, char **argv) {
     }
 }
 
-//adds clientSocket data into queue,
+//adds clientSocket data into a queue,
 void addClient(int clientSocket){
     //get lock
     pthread_mutex_lock(&mutex);
@@ -329,8 +348,8 @@ void *workerThread(void *id){
         //used for messages
         char* clientMessage = "Now connected to the spellcheck server.\n";
         char* msgRequest = "Send me text to check if a word or words are in the dictionary.\nUse the escape key to exit.\n";
-        char* wordFound = " is in the dictionary.\n";
-        char *wordNotFound = " is not in the dictionary.\n";
+        char* wordFound = " is correct.\n";
+        char *wordNotFound = " is not correct.\n";
         char* msgPrompt = ">>>";
         char* inputReceived = "Input from client: ";
         char* msgError = "Please input text for the spellchecker.\n";
@@ -368,7 +387,7 @@ void *workerThread(void *id){
                 //else check words in string
             else{
                 //remove trailing newline char
-                char *string = trim(recvBuffer);
+                char *string = recvBuffer;
 
                 //create an input recieved message
                 char *s = malloc(sizeof(char)*(strlen(inputReceived)+strlen(string)+2));

@@ -17,4 +17,4 @@ node *new_node(char *s){
     strcpy(n->word, s);
     return n;
 }
-#endif
+#endif  
