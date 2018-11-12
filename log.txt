@@ -1,0 +1,33 @@
+Thread 0: **********SERVER START*************
+Thread 0: All threads launched.
+Thread 0: **********SERVER START*************
+Thread 0: All threads launched.
+Thread 140332854978304: New client connected
+Thread 140332854978304: Input from client: épée
+Thread 140332854978304: épée is not correct.
+Thread 140332854978304: Input from client: épée
+Thread 140332854978304: épée is not correct.
+Thread 0: **********SERVER START*************
+Thread 0: All threads launched.
+Thread 0: **********SERVER START*************
+Thread 0: All threads launched.
+Thread 140249697158912: New client connected
+Thread 140249697158912: Input from client: hello world
+Thread 140249697158912: hello is correct.
+Thread 140249697158912: world is correct.
+Thread 140249697158912: Input from client: My naME Is Darrin
+Thread 140249697158912: my is correct.
+Thread 140249697158912: name is correct.
+Thread 140249697158912: is is correct.
+Thread 140249697158912: darrin is correct.
+Thread 140249697158912: Input from client: épée
+Thread 140249697158912: épée is correct.
+Thread 140249680373504: New client connected
+Thread 140249688766208: New client connected
+Thread 140249680373504: Input from client: world
+Thread 140249680373504: world is correct.
+Thread 140249688766208: Input from client: hello
+Thread 140249688766208: hello is correct.
+Thread 140249688766208: Input from client: 1
+Thread 140249688766208: 1 is not correct.
+Thread 140249688766208: New client connected

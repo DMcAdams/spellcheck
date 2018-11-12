@@ -12,7 +12,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 //file names
-#define DEFUALT_DICTIONARY "./words2.txt"
+#define DEFUALT_DICTIONARY "./words.txt"
 #define DEFUALT_PORT 1026
 #define LOG_FILE "./log.txt"
 //size of hash table
@@ -59,11 +59,8 @@ pthread_cond_t work;
 int count;
 
 int main(int argc, char **argv){
-    printf("<<<%d>>>\n",argc);
     //start message in log file
     write_log("**********SERVER START*************\n", 0);
-    printf("%lu", hash("épée"));
-    
     //initialize dictionary
     init();
     //creat the client queue
